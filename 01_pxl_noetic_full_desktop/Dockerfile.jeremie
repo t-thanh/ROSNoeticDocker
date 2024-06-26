@@ -1,0 +1,128 @@
+FROM osrf/ros:noetic-desktop-full-focal
+# The OSRF ROS Noetic containers use the root user.
+# Therefore, the following commands are executed as root up until the
+# USER user statement.
+
+# We love UTF!
+ENV LANG C.UTF-8
+
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+
+# Set the nvidia container runtime
+ENV NVIDIA_VISIBLE_DEVICES \
+    ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES \
+    ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
+
+# Install some handy tools.
+RUN set -x \
+	&& apt-get update \
+	&& apt-get --with-new-pkgs upgrade -y \
+	&& apt-get install -y mesa-utils \ 
+	&& apt-get install -y iputils-ping \ 
+	&& apt-get install -y apt-transport-https ca-certificates \
+	&& apt-get install -y openssh-server python3-pip exuberant-ctags \
+	&& apt-get install -y git vim tmux nano htop sudo curl wget gnupg2 \
+	&& apt-get install -y bash-completion \
+	&& apt-get install -y libcanberra-gtk3-0 \
+	&& apt-get install -y ros-noetic-turtlebot3 \
+	&& apt-get install -y ros-noetic-turtlebot3-bringup ros-noetic-turtlebot3-description \
+	&& apt-get install -y ros-noetic-turtlebot3-example ros-noetic-turtlebot3-gazebo \
+	&& apt-get install -y ros-noetic-turtlebot3-msgs ros-noetic-turtlebot3-navigation \
+	&& apt-get install -y ros-noetic-turtlebot3-simulations \
+	&& apt-get install -y ros-noetic-turtlebot3-slam ros-noetic-turtlebot3-teleop \
+    && apt-get install -y ros-noetic-gmapping ros-noetic-slam-gmapping ros-noetic-openslam-gmapping \
+	&& pip3 install powerline-shell dearpygui \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& adduser --disabled-password --gecos '' user \
+	&& adduser user sudo \
+	&& echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# Install CUDA 
+# RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb && \
+#    dpkg -i cuda-keyring_1.0-1_all.deb && \
+#    apt-get update && \
+#    apt-get -y install cuda
+
+# Install yolo v8
+RUN pip3 install ultralytics==8.0.178
+
+RUN set -x \
+	&& apt-get update \
+    && apt-get install -y ros-noetic-multi-map-server ros-noetic-multirobot-map-merge \
+	&& apt-get install -y ros-noetic-hector-sensors-gazebo \
+	&& rm -rf /var/lib/apt/lists/* 
+
+# The OSRF contianer didn't link python3 to python, causing ROS scripts to fail.
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
+
+
+USER user
+WORKDIR /home/user
+RUN sudo usermod -a -G video user
+
+RUN git clone https://github.com/jimeh/tmux-themepack.git ~/.tmux-themepack  \
+        && git clone https://github.com/tmux-plugins/tmux-resurrect ~/.tmux-resurrect
+COPY --chown=user:user ./.tmux.conf /home/user/.tmux.conf
+COPY --chown=user:user ./.powerline.sh /home/user/.powerline.sh
+
+#
+# Set some decent colors if the container needs to be accessed via /bin/bash.
+RUN echo LS_COLORS=$LS_COLORS:\'di=1\;33:ln=36\' >> ~/.bashrc \
+        && echo export LS_COLORS >> ~/.bashrc \
+        && echo 'source ~/.powerline.sh' >> ~/.bashrc \
+        && echo 'alias tmux="tmux -2"' >> ~/.bashrc \
+        && echo 'PATH=~/bin:$PATH' >> ~/.bashrc \
+        && touch ~/.sudo_as_admin_successful # To surpress the sudo message at run.
+
+RUN rosdep update \
+        && echo "source /opt/ros/noetic/setup.bash" >> /home/user/.bashrc
+
+# Adding a workspace for the students.
+RUN mkdir -p Projects/catkin_ws/src 
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws; catkin_make'
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws; catkin_make'
+
+
+RUN echo "source /home/user/Projects/catkin_ws/devel/setup.bash --extend" >> /home/user/.bashrc
+
+WORKDIR /home/user/Projects/catkin_ws
+RUN sudo apt update && rm -r src devel build && \
+	git clone https://github.com/t-thanh/jeremie-src src && \
+	cd src/uav_system/uav_core && bash installation/dependencies/general.sh && \
+	bash installation/dependencies/gitman.sh && gitman install --force && \
+	bash installation/dependencies/gdb/install.sh && bash installation/dependencies/mavros.sh --compile && \
+	cd /home/user/Projects/catkin_ws/src/uav_system/simulation && \
+	bash installation/dependencies/git_lfs.sh && gitman install --force && \
+	cd ros_packages/px4_firmware && git checkout v1.13.2 && \
+	cd /home/user/Projects/catkin_ws/src/uav_system/simulation && \
+	ros_packages/px4_firmware/Tools/setup/ubuntu.sh --no-nuttx --no-sim-tool
+
+RUN sudo apt-get upgrade -y libignition-common3* && sudo -H pip3 install --user packaging && \
+	sudo apt-get -y install python3-packaging && sudo apt-get -y install python3-toml && \
+	sudo -H pip3 install --user toml && sudo apt-get -y install libgstreamer1.0-dev
+
+# osqp installation
+WORKDIR /home/user/Projects/catkin_ws
+RUN mkdir dependances && cd dependances && \
+    git clone --recurse-submodules https://github.com/osqp/osqp -b release-0.6.3 && \
+    cd osqp && mkdir build && cd build && cmake -G "Unix Makefiles" .. && \
+    cmake --build . && sudo make install
+
+# osqp-eigen installation
+WORKDIR /home/user/Projects/catkin_ws
+RUN git clone https://github.com/robotology/osqp-eigen && \
+    cd osqp-eigen && mkdir build && cd build && \
+    cmake .. && make && sudo make install
+
+# catkin build
+WORKDIR /home/user/Projects/catkin_ws
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws; catkin build'
+
+# install terminator
+RUN sudo apt-get -y install terminator
+
+STOPSIGNAL SIGTERM
+
+CMD sudo service ssh start && /bin/bash
