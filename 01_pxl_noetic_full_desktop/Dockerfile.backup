@@ -34,9 +34,9 @@ RUN set -x \
     && apt-get install -y ros-noetic-gmapping ros-noetic-slam-gmapping ros-noetic-openslam-gmapping \
 	&& pip3 install powerline-shell dearpygui \
 	&& rm -rf /var/lib/apt/lists/* \
-	&& adduser --disabled-password --gecos '' user \
-	&& adduser user sudo \
-	&& echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+	&& useradd -ms /bin/bash user \
+	&& echo "user:user" | chpasswd && adduser user sudo \
+	&& echo "user ALL=(ALL) NOPASSWD: ALL " >> /etc/sudoers
 
 # Install CUDA 
 # RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb && \
@@ -79,6 +79,20 @@ RUN echo LS_COLORS=$LS_COLORS:\'di=1\;33:ln=36\' >> ~/.bashrc \
 RUN rosdep update \
         && echo "source /opt/ros/noetic/setup.bash" >> /home/user/.bashrc
 
+
+# Adding the ardrone
+RUN mkdir -p Projects/ardrone_ws/src 
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws; catkin_make'
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws; catkin_make'
+
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws/src; git clone https://github.com/PXLRoboticsLab/ardrone_autonomy.git'
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws/src; git clone https://github.com/PXLRoboticsLab/ardrone_gazebo.git'
+
+RUN echo "source /home/user/Projects/ardrone_ws/devel/setup.bash --extend" >> /home/user/.bashrc
+
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws/; . ./devel/setup.bash; catkin_make'
+RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/ardrone_ws/; . ./devel/setup.bash; catkin_make'
+
 # Adding a workspace for the students.
 RUN mkdir -p Projects/catkin_ws/src 
 RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws; catkin_make'
@@ -86,42 +100,6 @@ RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws
 
 
 RUN echo "source /home/user/Projects/catkin_ws/devel/setup.bash --extend" >> /home/user/.bashrc
-
-WORKDIR /home/user/Projects/catkin_ws
-RUN sudo apt update && rm -r src devel build && \
-	git clone https://github.com/t-thanh/jeremie-src src && \
-	cd src/uav_system/uav_core && bash installation/dependencies/general.sh && \
-	bash installation/dependencies/gitman.sh && gitman install --force && \
-	bash installation/dependencies/gdb/install.sh && bash installation/dependencies/mavros.sh --compile && \
-	cd /home/user/Projects/catkin_ws/src/uav_system/simulation && \
-	bash installation/dependencies/git_lfs.sh && gitman install --force && \
-	cd ros_packages/px4_firmware && git checkout v1.13.2 && \
-	cd /home/user/Projects/catkin_ws/src/uav_system/simulation && \
-	ros_packages/px4_firmware/Tools/setup/ubuntu.sh --no-nuttx --no-sim-tool
-
-RUN sudo apt-get upgrade -y libignition-common3* && sudo -H pip3 install --user packaging && \
-	sudo apt-get -y install python3-packaging && sudo apt-get -y install python3-toml && \
-	sudo -H pip3 install --user toml && sudo apt-get -y install libgstreamer1.0-dev
-
-# osqp installation
-WORKDIR /home/user/Projects/catkin_ws
-RUN mkdir dependances && cd dependances && \
-    git clone --recurse-submodules https://github.com/osqp/osqp -b release-0.6.3 && \
-    cd osqp && mkdir build && cd build && cmake -G "Unix Makefiles" .. && \
-    cmake --build . && sudo make install
-
-# osqp-eigen installation
-WORKDIR /home/user/Projects/catkin_ws
-RUN git clone https://github.com/robotology/osqp-eigen && \
-    cd osqp-eigen && mkdir build && cd build && \
-    cmake .. && make && sudo make install
-
-# catkin build
-WORKDIR /home/user/Projects/catkin_ws
-RUN /bin/bash -c '. /opt/ros/noetic/setup.bash; cd /home/user/Projects/catkin_ws; catkin build'
-
-# install terminator
-RUN sudo apt-get -y install terminator
 
 STOPSIGNAL SIGTERM
 
