@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t pxl_noetic_full_desktop:latest .
+docker build -t jeremie_sim:latest .
